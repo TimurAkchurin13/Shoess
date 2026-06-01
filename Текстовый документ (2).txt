@@ -1,0 +1,2144 @@
+namespace Shoes.Models;
+
+public class Category
+{
+    public int Id { get; set; }
+    public string CategoryName { get; set; } = string.Empty;
+}
+
+namespace Shoes.Models;
+
+public class Manufacturer
+{
+    public int Id { get; set; }
+    public string ManufacturerName { get; set; } = string.Empty;
+}
+
+using System;
+using System.Collections.Generic;
+
+namespace Shoes.Models;
+
+public class Order
+{
+    public int OrderNumber { get; set; }
+    public DateTime OrderDate { get; set; }
+    public DateTime DeliveryDate { get; set; }
+    public int PickupPointId { get; set; }
+    public int ClientId { get; set; }
+    public string ReceiptCode { get; set; } = string.Empty;
+    public string OrderStatus { get; set; } = string.Empty;
+    public decimal TotalAmount { get; set; }
+    
+    // Navigation properties
+    public string PickupPointAddress { get; set; } = string.Empty;
+    public string ClientName { get; set; } = string.Empty;
+    
+    // Order details
+    public List<OrderDetail> OrderDetails { get; set; } = new();
+}
+
+namespace Shoes.Models;
+
+public class OrderDetail
+{
+    public int Id { get; set; }
+    public int OrderNumber { get; set; }
+    public string Article { get; set; } = string.Empty;
+    public int Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal Discount { get; set; }
+    public decimal TotalPrice { get; set; }
+    
+    // Navigation properties
+    public string ProductName { get; set; } = string.Empty;
+}
+
+namespace Shoes.Models;
+
+public class PickupPoint
+{
+    public int Id { get; set; }
+    public string PointCode { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
+    public string Street { get; set; } = string.Empty;
+    public string HouseNumber { get; set; } = string.Empty;
+    
+    public string FullAddress => $"{City}, {Street}, {HouseNumber}";
+}
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
+
+namespace Shoes.Models;
+
+public class Product
+{
+    public string Article { get; set; } = string.Empty;
+    public int ProductNameId { get; set; }
+    public int UnitId { get; set; }
+    public decimal Price { get; set; }
+    public int SupplierId { get; set; }
+    public int ManufacturerId { get; set; }
+    public int CategoryId { get; set; }
+    public decimal? CurrentDiscount { get; set; }
+    public int StockQuantity { get; set; }
+    public string? Description { get; set; }
+    public string? Photo { get; set; }
+    
+    // Navigation properties
+    public string ProductName { get; set; } = string.Empty;
+    public string UnitName { get; set; } = string.Empty;
+    public string SupplierName { get; set; } = string.Empty;
+    public string ManufacturerName { get; set; } = string.Empty;
+    public string CategoryName { get; set; } = string.Empty;
+    
+    // Computed properties
+    public decimal PriceWithDiscount => Price * (1 - (CurrentDiscount ?? 0) / 100);
+    public bool HasHighDiscount => CurrentDiscount > 15;
+    
+    private const string ResourcePrefix = "avares://Shoes";
+    private const string NewImagesFolder = "/Assets/";
+    private const string LegacyImagesFolder = "/Views/Images/";
+    private const string DefaultImageName = "picture.png";
+    private static readonly string[] ExtensionFallbacks = { ".jpg", ".jpeg", ".png", ".bmp", ".gif" };
+    
+    // Путь к изображению товара
+    private Bitmap? _cachedBitmap;
+    
+    public string ImagePath
+    {
+        get
+        {
+            var normalized = NormalizeImagePath(Photo);
+            System.Diagnostics.Debug.WriteLine($"ImagePath: Photo='{Photo ?? "null"}' -> Result='{normalized}'");
+            return normalized;
+        }
+    }
+    
+    public Bitmap? ImageBitmap
+    {
+        get
+        {
+            if (_cachedBitmap != null)
+            {
+                return _cachedBitmap;
+            }
+            
+            _cachedBitmap = CreateBitmapFromPath(ImagePath);
+            return _cachedBitmap;
+        }
+    }
+    
+    private static string NormalizeImagePath(string? rawPath)
+    {
+        var sanitized = SanitizePath(rawPath);
+        var candidate = sanitized ?? DefaultImageName;
+        
+        var diskPath = TryResolveFileSystemPath(candidate);
+        if (!string.IsNullOrEmpty(diskPath))
+        {
+            return diskPath!;
+        }
+        
+        return $"{ResourcePrefix}{NewImagesFolder}{candidate}";
+    }
+    
+    private static string? SanitizePath(string? rawPath)
+    {
+        if (string.IsNullOrWhiteSpace(rawPath))
+        {
+            return DefaultImageName;
+        }
+        
+        var path = rawPath.Trim().Replace("\\", "/");
+        
+        if (path.StartsWith("avares://", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+        {
+            return path;
+        }
+        
+        if (Path.IsPathRooted(path))
+        {
+            return path;
+        }
+        
+        if (path.StartsWith("/", StringComparison.Ordinal))
+        {
+            path = path.TrimStart('/');
+        }
+        
+        if (path.StartsWith("Views/Images/", StringComparison.OrdinalIgnoreCase))
+        {
+            path = path["Views/Images/".Length..];
+        }
+        else if (path.StartsWith("Images/", StringComparison.OrdinalIgnoreCase))
+        {
+            path = path["Images/".Length..];
+        }
+        
+        return path;
+    }
+    
+    private static string? TryResolveFileSystemPath(string? sanitizedPath)
+    {
+        if (string.IsNullOrWhiteSpace(sanitizedPath))
+        {
+            return null;
+        }
+        
+        if (Path.IsPathRooted(sanitizedPath))
+        {
+            var resolvedAbsolute = ResolveExistingFile(sanitizedPath);
+            return resolvedAbsolute != null ? new Uri(resolvedAbsolute).AbsoluteUri : null;
+        }
+        
+        var relative = sanitizedPath.TrimStart('/');
+        foreach (var directory in EnumerateSearchDirectories())
+        {
+            var candidate = Path.Combine(directory, relative);
+            var resolved = ResolveExistingFile(candidate);
+            if (resolved != null)
+            {
+                return new Uri(resolved).AbsoluteUri;
+            }
+        }
+        
+        return null;
+    }
+    
+    private static string? ResolveExistingFile(string path)
+    {
+        if (File.Exists(path))
+        {
+            return path;
+        }
+        
+        var directory = Path.GetDirectoryName(path);
+        var baseName = Path.GetFileNameWithoutExtension(path);
+        var originalExt = Path.GetExtension(path);
+        
+        if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(baseName))
+        {
+            return null;
+        }
+        
+        foreach (var ext in BuildExtensionSequence(originalExt))
+        {
+            var alt = Path.Combine(directory, baseName + ext);
+            if (File.Exists(alt))
+            {
+                return alt;
+            }
+        }
+        
+        return null;
+    }
+    
+    private static IEnumerable<string> BuildExtensionSequence(string? originalExt)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        
+        if (!string.IsNullOrWhiteSpace(originalExt) && seen.Add(originalExt))
+        {
+            yield return originalExt;
+        }
+        
+        foreach (var fallback in ExtensionFallbacks)
+        {
+            if (seen.Add(fallback))
+            {
+                yield return fallback;
+            }
+        }
+    }
+    
+    private static IEnumerable<string> EnumerateSearchDirectories()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var dirs = new List<string>();
+        
+        void TryAdd(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return;
+            }
+            
+            var normalized = Path.GetFullPath(path);
+            if (seen.Add(normalized))
+            {
+                dirs.Add(normalized);
+            }
+        }
+        
+        TryAdd(AppContext.BaseDirectory);
+        TryAdd(Path.Combine(AppContext.BaseDirectory, "Images"));
+        TryAdd(Directory.GetCurrentDirectory());
+        TryAdd(Path.Combine(Directory.GetCurrentDirectory(), "Images"));
+        
+        var dir = AppContext.BaseDirectory;
+        for (int i = 0; i < 5 && !string.IsNullOrEmpty(dir); i++)
+        {
+            TryAdd(dir);
+            TryAdd(Path.Combine(dir, "Images"));
+            
+            var parent = Directory.GetParent(dir);
+            if (parent == null)
+            {
+                break;
+            }
+            dir = parent.FullName;
+        }
+        
+        foreach (var directory in dirs)
+        {
+            if (Directory.Exists(directory))
+            {
+                yield return directory;
+            }
+        }
+    }
+    
+    private static Bitmap? CreateBitmapFromPath(string path)
+    {
+        try
+        {
+            var uri = new Uri(path);
+            if (uri.IsAbsoluteUri && uri.Scheme.Equals("file", StringComparison.OrdinalIgnoreCase))
+            {
+                var localPath = uri.LocalPath;
+                if (File.Exists(localPath))
+                {
+                    return new Bitmap(localPath);
+                }
+            }
+            else if (AssetLoader.Exists(uri))
+            {
+                using var stream = AssetLoader.Open(uri);
+                return new Bitmap(stream);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"CreateBitmapFromPath error for '{path}': {ex.Message}");
+        }
+        
+        try
+        {
+            var fallbackUri = new Uri($"{ResourcePrefix}{NewImagesFolder}{DefaultImageName}");
+            if (AssetLoader.Exists(fallbackUri))
+            {
+                using var stream = AssetLoader.Open(fallbackUri);
+                return new Bitmap(stream);
+            }
+            
+            var fallbackPath = Path.Combine(AppContext.BaseDirectory, "Images", DefaultImageName);
+            if (File.Exists(fallbackPath))
+            {
+                return new Bitmap(fallbackPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Fallback bitmap error: {ex.Message}");
+        }
+        
+        return null;
+    }
+}
+
+namespace Shoes.Models;
+
+public class ProductName
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+}
+
+namespace Shoes.Models;
+
+public class Supplier
+{
+    public int Id { get; set; }
+    public string SupplierName { get; set; } = string.Empty;
+}
+
+namespace Shoes.Models;
+
+public class UnitOfMeasure
+{
+    public int Id { get; set; }
+    public string UnitName { get; set; } = string.Empty;
+}
+
+namespace Shoes.Models;
+
+public class User
+{
+    public int Id { get; set; }
+    public int RoleId { get; set; }
+    public string LastName { get; set; } = string.Empty;
+    public string FirstName { get; set; } = string.Empty;
+    public string? MiddleName { get; set; }
+    public string Login { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    
+    // Navigation property
+    public string? RoleName { get; set; }
+    
+    public string FullName => $"{LastName} {FirstName} {MiddleName}".Trim();
+}
+
+using Shoes.Models;
+
+namespace Shoes.Services;
+
+public class CurrentUserService
+{
+    private static CurrentUserService? _instance;
+    public static CurrentUserService Instance => _instance ??= new CurrentUserService();
+    
+    public User? CurrentUser { get; set; }
+    public bool IsGuest { get; set; }
+    
+    private static string NormalizeRole(string? role) =>
+        string.IsNullOrWhiteSpace(role) ? string.Empty : role.Trim().ToLowerInvariant();
+    
+    public bool IsAdmin => NormalizeRole(CurrentUser?.RoleName) == "администратор";
+    public bool IsManager => NormalizeRole(CurrentUser?.RoleName) == "менеджер";
+    public bool IsClient => !IsGuest 
+                            && CurrentUser != null
+                            && NormalizeRole(CurrentUser.RoleName) == "клиент";
+    
+    public bool CanFilterAndSearch => IsAdmin || IsManager;
+    public bool CanEditProducts => IsAdmin;
+    // Менеджер может только просматривать заказы, без изменений
+    public bool CanEditOrders => IsAdmin;
+    public bool CanViewOrders => IsAdmin || IsManager;
+    public bool CanViewMyOrders => IsClient; // Клиент может видеть свои заказы
+    public bool CanViewReports => false; // Пользователь не должен иметь доступ к окну по отчетам
+    
+    // Оформлять заказ могут клиент и администратор (но не гость и не менеджер)
+    public bool CanCreateOrder => !IsGuest && CurrentUser != null && (IsClient || IsAdmin);
+}
+
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Threading.Tasks;
+using Npgsql;
+using Shoes.Models;
+
+namespace Shoes.Services;
+
+public class DatabaseService
+{
+    private readonly string _connectionString;
+    
+    public DatabaseService()
+    {
+        _connectionString = "Host=localhost;Username=postgres;Password=123456;Database=Shoes";
+    }
+    
+    private NpgsqlConnection GetConnection()
+    {
+        return new NpgsqlConnection(_connectionString);
+    }
+    
+    // User methods
+    public async Task<User?> AuthenticateUser(string login, string password)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand(@"
+            SELECT u.id, u.role_id, u.last_name, u.first_name, u.middle_name, 
+                   u.login, u.password, ur.role
+            FROM users u
+            JOIN user_role ur ON u.role_id = ur.id
+            WHERE u.login = @login AND u.password = @password", conn);
+        
+        cmd.Parameters.AddWithValue("login", login);
+        cmd.Parameters.AddWithValue("password", password);
+        
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return new User
+            {
+                Id = reader.GetInt32(0),
+                RoleId = reader.GetInt32(1),
+                LastName = reader.GetString(2),
+                FirstName = reader.GetString(3),
+                MiddleName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                Login = reader.GetString(5),
+                Password = reader.GetString(6),
+                RoleName = reader.GetString(7)
+            };
+        }
+        
+        return null;
+    }
+    
+    // Product methods
+    public async Task<List<Product>> GetAllProducts()
+    {
+        var products = new List<Product>();
+        
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand(@"
+            SELECT p.article, p.product_name_id, p.unit_id, p.price, p.supplier_id,
+                   p.manufacturer_id, p.category_id, p.current_discount, p.stock_quantity,
+                   p.description, p.photo,
+                   pn.product_name, u.unit_name, s.supplier_name, 
+                   m.manufacturer_name, c.category_name
+            FROM products p
+            JOIN product_name pn ON p.product_name_id = pn.id
+            JOIN unit_of_measure u ON p.unit_id = u.id
+            JOIN supplier s ON p.supplier_id = s.id
+            JOIN manufacturer m ON p.manufacturer_id = m.id
+            JOIN category c ON p.category_id = c.id
+            ORDER BY pn.product_name", conn);
+        
+        using var reader = await cmd.ExecuteReaderAsync();
+        int index = 0;
+        while (await reader.ReadAsync())
+        {
+            var rawPhoto = reader.IsDBNull(10) ? null : reader.GetString(10);
+            if (string.IsNullOrWhiteSpace(rawPhoto))
+            {
+                rawPhoto = "picture.png";
+            }
+            
+            var product = new Product
+            {
+                Article = reader.GetString(0),
+                ProductNameId = reader.GetInt32(1),
+                UnitId = reader.GetInt32(2),
+                Price = reader.GetDecimal(3),
+                SupplierId = reader.GetInt32(4),
+                ManufacturerId = reader.GetInt32(5),
+                CategoryId = reader.GetInt32(6),
+                CurrentDiscount = reader.IsDBNull(7) ? null : reader.GetDecimal(7),
+                StockQuantity = reader.GetInt32(8),
+                Description = reader.IsDBNull(9) ? null : reader.GetString(9),
+                Photo = rawPhoto,
+                ProductName = reader.GetString(11),
+                UnitName = reader.GetString(12),
+                SupplierName = reader.GetString(13),
+                ManufacturerName = reader.GetString(14),
+                CategoryName = reader.GetString(15)
+            };
+            
+            products.Add(product);
+            index++;
+            var logPath = product.ImagePath;
+            if (logPath.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    logPath = new Uri(logPath).LocalPath;
+                }
+                catch (UriFormatException)
+                {
+                    logPath = Uri.UnescapeDataString(product.ImagePath);
+                }
+            }
+            var log = $"[Products] #{index}: {product.ProductName} ({product.Article}) -> {logPath}";
+            System.Diagnostics.Debug.WriteLine(log);
+            Console.WriteLine(log);
+        }
+        
+        return products;
+    }
+    
+    public async Task<bool> AddProduct(Product product)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            
+            // Проверка существования значений перед вставкой
+            var checkCmd = new NpgsqlCommand(@"
+                SELECT 
+                    (SELECT COUNT(*) FROM product_name WHERE id = @product_name_id) as pn_exists,
+                    (SELECT COUNT(*) FROM unit_of_measure WHERE id = @unit_id) as unit_exists,
+                    (SELECT COUNT(*) FROM supplier WHERE id = @supplier_id) as supplier_exists,
+                    (SELECT COUNT(*) FROM manufacturer WHERE id = @manufacturer_id) as manufacturer_exists,
+                    (SELECT COUNT(*) FROM category WHERE id = @category_id) as category_exists", conn);
+            
+            checkCmd.Parameters.AddWithValue("product_name_id", product.ProductNameId);
+            checkCmd.Parameters.AddWithValue("unit_id", product.UnitId);
+            checkCmd.Parameters.AddWithValue("supplier_id", product.SupplierId);
+            checkCmd.Parameters.AddWithValue("manufacturer_id", product.ManufacturerId);
+            checkCmd.Parameters.AddWithValue("category_id", product.CategoryId);
+            
+            using var checkReader = await checkCmd.ExecuteReaderAsync();
+            if (await checkReader.ReadAsync())
+            {
+                if (checkReader.GetInt64(0) == 0) 
+                {
+                    checkReader.Close();
+                    throw new Exception("Наименование товара не существует в базе данных. Выберите другое значение.");
+                }
+                if (checkReader.GetInt64(1) == 0) 
+                {
+                    checkReader.Close();
+                    throw new Exception("Единица измерения не существует в базе данных. Выберите другое значение.");
+                }
+                if (checkReader.GetInt64(2) == 0) 
+                {
+                    checkReader.Close();
+                    throw new Exception("Поставщик не существует в базе данных. Выберите другое значение.");
+                }
+                if (checkReader.GetInt64(3) == 0) 
+                {
+                    checkReader.Close();
+                    throw new Exception("Производитель не существует в базе данных. Выберите другое значение.");
+                }
+                if (checkReader.GetInt64(4) == 0) 
+                {
+                    checkReader.Close();
+                    throw new Exception("Категория не существует в базе данных. Выберите другое значение.");
+                }
+            }
+            checkReader.Close();
+            
+            var cmd = new NpgsqlCommand(@"
+                INSERT INTO products (article, product_name_id, unit_id, price, supplier_id,
+                                      manufacturer_id, category_id, current_discount, 
+                                      stock_quantity, description, photo)
+                VALUES (@article, @product_name_id, @unit_id, @price, @supplier_id,
+                        @manufacturer_id, @category_id, @current_discount, 
+                        @stock_quantity, @description, @photo)", conn);
+            
+            cmd.Parameters.AddWithValue("article", product.Article);
+            cmd.Parameters.AddWithValue("product_name_id", product.ProductNameId);
+            cmd.Parameters.AddWithValue("unit_id", product.UnitId);
+            cmd.Parameters.AddWithValue("price", product.Price);
+            cmd.Parameters.AddWithValue("supplier_id", product.SupplierId);
+            cmd.Parameters.AddWithValue("manufacturer_id", product.ManufacturerId);
+            cmd.Parameters.AddWithValue("category_id", product.CategoryId);
+            cmd.Parameters.AddWithValue("current_discount", (object?)product.CurrentDiscount ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("stock_quantity", product.StockQuantity);
+            cmd.Parameters.AddWithValue("description", (object?)product.Description ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("photo", (object?)product.Photo ?? DBNull.Value);
+            
+            return await cmd.ExecuteNonQueryAsync() > 0;
+        }
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == "23503")
+        {
+            throw new Exception("Ошибка: выбранное значение не существует в базе данных. Выберите другое значение.");
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Ошибка при добавлении товара: {ex.Message}");
+        }
+    }
+    
+    public async Task<bool> UpdateProduct(Product product)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            
+            // Проверка существования значений перед обновлением
+            var checkCmd = new NpgsqlCommand(@"
+                SELECT 
+                    (SELECT COUNT(*) FROM product_name WHERE id = @product_name_id) as pn_exists,
+                    (SELECT COUNT(*) FROM unit_of_measure WHERE id = @unit_id) as unit_exists,
+                    (SELECT COUNT(*) FROM supplier WHERE id = @supplier_id) as supplier_exists,
+                    (SELECT COUNT(*) FROM manufacturer WHERE id = @manufacturer_id) as manufacturer_exists,
+                    (SELECT COUNT(*) FROM category WHERE id = @category_id) as category_exists", conn);
+            
+            checkCmd.Parameters.AddWithValue("product_name_id", product.ProductNameId);
+            checkCmd.Parameters.AddWithValue("unit_id", product.UnitId);
+            checkCmd.Parameters.AddWithValue("supplier_id", product.SupplierId);
+            checkCmd.Parameters.AddWithValue("manufacturer_id", product.ManufacturerId);
+            checkCmd.Parameters.AddWithValue("category_id", product.CategoryId);
+            
+            using var checkReader = await checkCmd.ExecuteReaderAsync();
+            if (await checkReader.ReadAsync())
+            {
+                if (checkReader.GetInt64(0) == 0) 
+                {
+                    checkReader.Close();
+                    throw new Exception("Наименование товара не существует в базе данных. Выберите другое значение.");
+                }
+                if (checkReader.GetInt64(1) == 0) 
+                {
+                    checkReader.Close();
+                    throw new Exception("Единица измерения не существует в базе данных. Выберите другое значение.");
+                }
+                if (checkReader.GetInt64(2) == 0) 
+                {
+                    checkReader.Close();
+                    throw new Exception("Поставщик не существует в базе данных. Выберите другое значение.");
+                }
+                if (checkReader.GetInt64(3) == 0) 
+                {
+                    checkReader.Close();
+                    throw new Exception("Производитель не существует в базе данных. Выберите другое значение.");
+                }
+                if (checkReader.GetInt64(4) == 0) 
+                {
+                    checkReader.Close();
+                    throw new Exception("Категория не существует в базе данных. Выберите другое значение.");
+                }
+            }
+            checkReader.Close();
+            
+            var cmd = new NpgsqlCommand(@"
+                UPDATE products 
+                SET product_name_id = @product_name_id, unit_id = @unit_id, 
+                    price = @price, supplier_id = @supplier_id,
+                    manufacturer_id = @manufacturer_id, category_id = @category_id, 
+                    current_discount = @current_discount, stock_quantity = @stock_quantity,
+                    description = @description, photo = @photo
+                WHERE article = @article", conn);
+            
+            cmd.Parameters.AddWithValue("article", product.Article);
+            cmd.Parameters.AddWithValue("product_name_id", product.ProductNameId);
+            cmd.Parameters.AddWithValue("unit_id", product.UnitId);
+            cmd.Parameters.AddWithValue("price", product.Price);
+            cmd.Parameters.AddWithValue("supplier_id", product.SupplierId);
+            cmd.Parameters.AddWithValue("manufacturer_id", product.ManufacturerId);
+            cmd.Parameters.AddWithValue("category_id", product.CategoryId);
+            cmd.Parameters.AddWithValue("current_discount", (object?)product.CurrentDiscount ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("stock_quantity", product.StockQuantity);
+            cmd.Parameters.AddWithValue("description", (object?)product.Description ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("photo", (object?)product.Photo ?? DBNull.Value);
+            
+            return await cmd.ExecuteNonQueryAsync() > 0;
+        }
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == "23503")
+        {
+            throw new Exception("Ошибка: выбранное значение не существует в базе данных. Выберите другое значение.");
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Ошибка при обновлении товара: {ex.Message}");
+        }
+    }
+    
+    public async Task<bool> DeleteProduct(string article)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand("DELETE FROM products WHERE article = @article", conn);
+        cmd.Parameters.AddWithValue("article", article);
+        
+        return await cmd.ExecuteNonQueryAsync() > 0;
+    }
+    
+    // Order methods
+    public async Task<List<Order>> GetAllOrders()
+    {
+        var orders = new List<Order>();
+        
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            
+            System.Diagnostics.Debug.WriteLine("=== GetAllOrders: Начало загрузки ===");
+            
+            // Используем LEFT JOIN, чтобы получить заказы даже если нет связанных данных
+            var cmd = new NpgsqlCommand(@"
+                SELECT o.order_number, o.order_date, o.delivery_date, o.pickup_point_id,
+                       o.client_id, o.receipt_code, o.order_status, o.total_amount,
+                       COALESCE(pp.city || ', ' || pp.street || ', ' || pp.house_number, 'Не указан') as pickup_point_address,
+                       COALESCE(u.last_name || ' ' || u.first_name, 'Неизвестный клиент') as client_name
+                FROM orders o
+                LEFT JOIN pickup_points pp ON o.pickup_point_id = pp.id
+                LEFT JOIN users u ON o.client_id = u.id
+                ORDER BY o.order_date DESC", conn);
+            
+            using var reader = await cmd.ExecuteReaderAsync();
+            int count = 0;
+            while (await reader.ReadAsync())
+            {
+                var order = new Order
+                {
+                    OrderNumber = reader.GetInt32(0),
+                    OrderDate = reader.GetDateTime(1),
+                    DeliveryDate = reader.GetDateTime(2),
+                    PickupPointId = reader.GetInt32(3),
+                    ClientId = reader.GetInt32(4),
+                    ReceiptCode = reader.GetString(5),
+                    OrderStatus = reader.GetString(6),
+                    TotalAmount = reader.GetDecimal(7),
+                    PickupPointAddress = reader.IsDBNull(8) ? "Не указан" : reader.GetString(8),
+                    ClientName = reader.IsDBNull(9) ? "Неизвестный клиент" : reader.GetString(9)
+                };
+                orders.Add(order);
+                count++;
+                System.Diagnostics.Debug.WriteLine($"  Заказ #{order.OrderNumber}: {order.ClientName}, {order.TotalAmount} ₽");
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"=== GetAllOrders: Загружено {count} заказов ===");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"ОШИБКА GetAllOrders: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+            throw;
+        }
+        
+        return orders;
+    }
+    
+    public async Task<List<Order>> GetClientOrders(int clientId)
+    {
+        var orders = new List<Order>();
+        
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            
+            System.Diagnostics.Debug.WriteLine($"=== GetClientOrders: Начало загрузки для клиента ID={clientId} ===");
+            
+            // Используем LEFT JOIN, чтобы получить заказы даже если нет связанных данных
+            var cmd = new NpgsqlCommand(@"
+                SELECT o.order_number, o.order_date, o.delivery_date, o.pickup_point_id,
+                       o.client_id, o.receipt_code, o.order_status, o.total_amount,
+                       COALESCE(pp.city || ', ' || pp.street || ', ' || pp.house_number, 'Не указан') as pickup_point_address,
+                       COALESCE(u.last_name || ' ' || u.first_name, 'Неизвестный клиент') as client_name
+                FROM orders o
+                LEFT JOIN pickup_points pp ON o.pickup_point_id = pp.id
+                LEFT JOIN users u ON o.client_id = u.id
+                WHERE o.client_id = @client_id
+                ORDER BY o.order_date DESC", conn);
+            
+            cmd.Parameters.AddWithValue("client_id", clientId);
+            
+            using var reader = await cmd.ExecuteReaderAsync();
+            int count = 0;
+            while (await reader.ReadAsync())
+            {
+                var order = new Order
+                {
+                    OrderNumber = reader.GetInt32(0),
+                    OrderDate = reader.GetDateTime(1),
+                    DeliveryDate = reader.GetDateTime(2),
+                    PickupPointId = reader.GetInt32(3),
+                    ClientId = reader.GetInt32(4),
+                    ReceiptCode = reader.GetString(5),
+                    OrderStatus = reader.GetString(6),
+                    TotalAmount = reader.GetDecimal(7),
+                    PickupPointAddress = reader.IsDBNull(8) ? "Не указан" : reader.GetString(8),
+                    ClientName = reader.IsDBNull(9) ? "Неизвестный клиент" : reader.GetString(9)
+                };
+                orders.Add(order);
+                count++;
+                System.Diagnostics.Debug.WriteLine($"  Заказ клиента #{order.OrderNumber}: {order.ClientName}, {order.TotalAmount} ₽");
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"=== GetClientOrders: Загружено {count} заказов ===");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"ОШИБКА GetClientOrders: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+            throw;
+        }
+        
+        return orders;
+    }
+    
+    public async Task<List<OrderDetail>> GetOrderDetails(int orderNumber)
+    {
+        var details = new List<OrderDetail>();
+        
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand(@"
+            SELECT od.id, od.order_number, od.article, od.quantity, od.unit_price,
+                   od.discount, od.total_price, pn.product_name
+            FROM order_details od
+            JOIN products p ON od.article = p.article
+            JOIN product_name pn ON p.product_name_id = pn.id
+            WHERE od.order_number = @order_number", conn);
+        
+        cmd.Parameters.AddWithValue("order_number", orderNumber);
+        
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            details.Add(new OrderDetail
+            {
+                Id = reader.GetInt32(0),
+                OrderNumber = reader.GetInt32(1),
+                Article = reader.GetString(2),
+                Quantity = reader.GetInt32(3),
+                UnitPrice = reader.GetDecimal(4),
+                Discount = reader.GetDecimal(5),
+                TotalPrice = reader.GetDecimal(6),
+                ProductName = reader.GetString(7)
+            });
+        }
+        
+        return details;
+    }
+    
+    public async Task<bool> DeleteOrder(int orderNumber)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand("DELETE FROM orders WHERE order_number = @order_number", conn);
+        cmd.Parameters.AddWithValue("order_number", orderNumber);
+        
+        return await cmd.ExecuteNonQueryAsync() > 0;
+    }
+    
+    public async Task<bool> UpdateOrderStatus(int orderNumber, string newStatus)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand("UPDATE orders SET order_status = @status WHERE order_number = @order_number", conn);
+        cmd.Parameters.AddWithValue("status", newStatus);
+        cmd.Parameters.AddWithValue("order_number", orderNumber);
+        
+        return await cmd.ExecuteNonQueryAsync() > 0;
+    }
+    
+    public async Task<bool> UpdateOrder(Order order, List<OrderDetail> details)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        using var transaction = await conn.BeginTransactionAsync();
+        
+        try
+        {
+            // Обновляем заказ
+            var orderCmd = new NpgsqlCommand(@"
+                UPDATE orders 
+                SET order_date = @order_date, 
+                    delivery_date = @delivery_date, 
+                    pickup_point_id = @pickup_point_id, 
+                    client_id = @client_id, 
+                    receipt_code = @receipt_code, 
+                    order_status = @order_status, 
+                    total_amount = @total_amount
+                WHERE order_number = @order_number", conn, transaction);
+            
+            orderCmd.Parameters.AddWithValue("order_number", order.OrderNumber);
+            orderCmd.Parameters.AddWithValue("order_date", order.OrderDate);
+            orderCmd.Parameters.AddWithValue("delivery_date", order.DeliveryDate);
+            orderCmd.Parameters.AddWithValue("pickup_point_id", order.PickupPointId);
+            orderCmd.Parameters.AddWithValue("client_id", order.ClientId);
+            orderCmd.Parameters.AddWithValue("receipt_code", order.ReceiptCode);
+            orderCmd.Parameters.AddWithValue("order_status", order.OrderStatus);
+            orderCmd.Parameters.AddWithValue("total_amount", order.TotalAmount);
+            
+            await orderCmd.ExecuteNonQueryAsync();
+            
+            // Удаляем старые детали заказа
+            var deleteCmd = new NpgsqlCommand("DELETE FROM order_details WHERE order_number = @order_number", conn, transaction);
+            deleteCmd.Parameters.AddWithValue("order_number", order.OrderNumber);
+            await deleteCmd.ExecuteNonQueryAsync();
+            
+            // Добавляем новые детали заказа
+            foreach (var detail in details)
+            {
+                var detailCmd = new NpgsqlCommand(@"
+                    INSERT INTO order_details (order_number, article, quantity, unit_price, discount, total_price)
+                    VALUES (@order_number, @article, @quantity, @unit_price, @discount, @total_price)", conn, transaction);
+                
+                detailCmd.Parameters.AddWithValue("order_number", order.OrderNumber);
+                detailCmd.Parameters.AddWithValue("article", detail.Article);
+                detailCmd.Parameters.AddWithValue("quantity", detail.Quantity);
+                detailCmd.Parameters.AddWithValue("unit_price", detail.UnitPrice);
+                detailCmd.Parameters.AddWithValue("discount", detail.Discount);
+                detailCmd.Parameters.AddWithValue("total_price", detail.TotalPrice);
+                
+                await detailCmd.ExecuteNonQueryAsync();
+            }
+            
+            await transaction.CommitAsync();
+            return true;
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+    
+    public async Task<List<User>> GetAllUsers()
+    {
+        var users = new List<User>();
+        
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand(@"
+            SELECT u.id, u.role_id, u.last_name, u.first_name, u.middle_name, 
+                   u.login, u.password, ur.role
+            FROM users u
+            JOIN user_role ur ON u.role_id = ur.id
+            ORDER BY u.last_name, u.first_name", conn);
+        
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            users.Add(new User
+            {
+                Id = reader.GetInt32(0),
+                RoleId = reader.GetInt32(1),
+                LastName = reader.GetString(2),
+                FirstName = reader.GetString(3),
+                MiddleName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                Login = reader.GetString(5),
+                Password = reader.GetString(6),
+                RoleName = reader.GetString(7)
+            });
+        }
+        
+        return users;
+    }
+    
+    public async Task<int> CreateOrder(Order order, List<OrderDetail> details)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        using var transaction = await conn.BeginTransactionAsync();
+        
+        try
+        {
+            // Создаем заказ
+            var orderCmd = new NpgsqlCommand(@"
+                INSERT INTO orders (order_date, delivery_date, pickup_point_id, client_id, receipt_code, order_status, total_amount)
+                VALUES (@order_date, @delivery_date, @pickup_point_id, @client_id, @receipt_code, @order_status, @total_amount)
+                RETURNING order_number", conn, transaction);
+            
+            orderCmd.Parameters.AddWithValue("order_date", order.OrderDate);
+            orderCmd.Parameters.AddWithValue("delivery_date", order.DeliveryDate);
+            orderCmd.Parameters.AddWithValue("pickup_point_id", order.PickupPointId);
+            orderCmd.Parameters.AddWithValue("client_id", order.ClientId);
+            orderCmd.Parameters.AddWithValue("receipt_code", order.ReceiptCode);
+            orderCmd.Parameters.AddWithValue("order_status", order.OrderStatus);
+            orderCmd.Parameters.AddWithValue("total_amount", order.TotalAmount);
+            
+            var orderNumber = (int)(await orderCmd.ExecuteScalarAsync())!;
+            
+            // Создаем детали заказа
+            foreach (var detail in details)
+            {
+                var detailCmd = new NpgsqlCommand(@"
+                    INSERT INTO order_details (order_number, article, quantity, unit_price, discount, total_price)
+                    VALUES (@order_number, @article, @quantity, @unit_price, @discount, @total_price)", conn, transaction);
+                
+                detailCmd.Parameters.AddWithValue("order_number", orderNumber);
+                detailCmd.Parameters.AddWithValue("article", detail.Article);
+                detailCmd.Parameters.AddWithValue("quantity", detail.Quantity);
+                detailCmd.Parameters.AddWithValue("unit_price", detail.UnitPrice);
+                detailCmd.Parameters.AddWithValue("discount", detail.Discount);
+                detailCmd.Parameters.AddWithValue("total_price", detail.TotalPrice);
+                
+                await detailCmd.ExecuteNonQueryAsync();
+            }
+            
+            await transaction.CommitAsync();
+            return orderNumber;
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+    
+    public async Task<List<ProductName>> GetAllProductNames()
+    {
+        var names = new List<ProductName>();
+        
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand("SELECT id, product_name FROM product_name ORDER BY product_name", conn);
+        
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            names.Add(new ProductName
+            {
+                Id = reader.GetInt32(0),
+                Name = reader.GetString(1)
+            });
+        }
+        
+        return names;
+    }
+    
+    public async Task<int> CreateProductName(string name)
+    {
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand("INSERT INTO product_name (product_name) VALUES (@name) RETURNING id", conn);
+        cmd.Parameters.AddWithValue("name", name);
+        
+        return (int)(await cmd.ExecuteScalarAsync())!;
+    }
+    
+    // Lookup methods
+    public async Task<List<Category>> GetAllCategories()
+    {
+        var categories = new List<Category>();
+        
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand("SELECT id, category_name FROM category ORDER BY category_name", conn);
+        
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            categories.Add(new Category
+            {
+                Id = reader.GetInt32(0),
+                CategoryName = reader.GetString(1)
+            });
+        }
+        
+        return categories;
+    }
+    
+    public async Task<List<Manufacturer>> GetAllManufacturers()
+    {
+        var manufacturers = new List<Manufacturer>();
+        
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand("SELECT id, manufacturer_name FROM manufacturer ORDER BY manufacturer_name", conn);
+        
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            manufacturers.Add(new Manufacturer
+            {
+                Id = reader.GetInt32(0),
+                ManufacturerName = reader.GetString(1)
+            });
+        }
+        
+        return manufacturers;
+    }
+    
+    public async Task<List<Supplier>> GetAllSuppliers()
+    {
+        var suppliers = new List<Supplier>();
+        
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand("SELECT id, supplier_name FROM supplier ORDER BY supplier_name", conn);
+        
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            suppliers.Add(new Supplier
+            {
+                Id = reader.GetInt32(0),
+                SupplierName = reader.GetString(1)
+            });
+        }
+        
+        return suppliers;
+    }
+    
+    public async Task<List<PickupPoint>> GetAllPickupPoints()
+    {
+        var points = new List<PickupPoint>();
+        
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand("SELECT id, point_code, city, street, house_number FROM pickup_points ORDER BY city, street", conn);
+        
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            points.Add(new PickupPoint
+            {
+                Id = reader.GetInt32(0),
+                PointCode = reader.GetString(1),
+                City = reader.GetString(2),
+                Street = reader.GetString(3),
+                HouseNumber = reader.GetString(4)
+            });
+        }
+        
+        return points;
+    }
+    
+    public async Task<List<UnitOfMeasure>> GetAllUnitOfMeasure()
+    {
+        var units = new List<UnitOfMeasure>();
+        
+        using var conn = GetConnection();
+        await conn.OpenAsync();
+        
+        var cmd = new NpgsqlCommand("SELECT id, unit_name FROM unit_of_measure ORDER BY unit_name", conn);
+        
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            units.Add(new UnitOfMeasure
+            {
+                Id = reader.GetInt32(0),
+                UnitName = reader.GetString(1)
+            });
+        }
+        
+        return units;
+    }
+}
+
+using System;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Shoes.Services;
+
+namespace Shoes.ViewModels;
+
+public partial class LoginWindowViewModel : ViewModelBase
+{
+    private readonly DatabaseService _databaseService;
+    
+    [ObservableProperty]
+    private string _username = string.Empty;
+    
+    [ObservableProperty]
+    private string _password = string.Empty;
+    
+    [ObservableProperty]
+    private string _errorMessage = string.Empty;
+    
+    [ObservableProperty]
+    private bool _isLoading = false;
+    
+    public event EventHandler? LoginSuccessful;
+    public event EventHandler? GuestLoginRequested;
+    
+    public LoginWindowViewModel()
+    {
+        _databaseService = new DatabaseService();
+    }
+    
+    [RelayCommand]
+    private async Task Login()
+    {
+        ErrorMessage = string.Empty;
+        
+        if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(Password))
+        {
+            ErrorMessage = "Введите логин и пароль";
+            return;
+        }
+        
+        IsLoading = true;
+        
+        try
+        {
+            var user = await _databaseService.AuthenticateUser(Username, Password);
+            
+            if (user != null)
+            {
+                CurrentUserService.Instance.CurrentUser = user;
+                CurrentUserService.Instance.IsGuest = false;
+                
+                // Обновляем права доступа
+                System.Diagnostics.Debug.WriteLine($"=== УСПЕШНЫЙ ВХОД ===");
+                System.Diagnostics.Debug.WriteLine($"Пользователь: {user.Login}");
+                System.Diagnostics.Debug.WriteLine($"Роль из БД: '{user.RoleName}'");
+                System.Diagnostics.Debug.WriteLine($"IsAdmin: {CurrentUserService.Instance.IsAdmin}");
+                System.Diagnostics.Debug.WriteLine($"IsManager: {CurrentUserService.Instance.IsManager}");
+                System.Diagnostics.Debug.WriteLine($"IsClient: {CurrentUserService.Instance.IsClient}");
+                System.Diagnostics.Debug.WriteLine($"CanCreateOrder: {CurrentUserService.Instance.CanCreateOrder}");
+                System.Diagnostics.Debug.WriteLine($"CanViewMyOrders: {CurrentUserService.Instance.CanViewMyOrders}");
+                
+                LoginSuccessful?.Invoke(this, EventArgs.Empty);
+            }
+            else
+            {
+                ErrorMessage = "Неверный логин или пароль";
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Ошибка подключения к базе данных: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    [RelayCommand]
+    private void LoginAsGuest()
+    {
+        CurrentUserService.Instance.CurrentUser = null;
+        CurrentUserService.Instance.IsGuest = true;
+        GuestLoginRequested?.Invoke(this, EventArgs.Empty);
+    }
+}
+
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Shoes.Models;
+using Shoes.Services;
+
+namespace Shoes.ViewModels;
+
+    public partial class ProductsWindowViewModel : ViewModelBase
+{
+    private readonly DatabaseService _databaseService;
+    private List<Product> _allProducts = new();
+    
+    [ObservableProperty]
+    private ObservableCollection<Product> _products = new();
+    
+    [ObservableProperty]
+    private ObservableCollection<string> _categories = new();
+    
+    [ObservableProperty]
+    private ObservableCollection<string> _manufacturers = new();
+    
+    [ObservableProperty]
+    private string? _selectedCategory;
+    
+    [ObservableProperty]
+    private string? _selectedManufacturer;
+    
+    [ObservableProperty]
+    private string _searchText = string.Empty;
+    
+    [ObservableProperty]
+    private string _sortOption = "По умолчанию";
+    
+    [ObservableProperty]
+    private Product? _selectedProduct;
+    
+    [ObservableProperty]
+    private bool _isLoading = false;
+    
+    [ObservableProperty]
+    private string _statusMessage = string.Empty;
+    
+        public bool CanFilterAndSearch => CurrentUserService.Instance.CanFilterAndSearch;
+        public bool CanEdit => CurrentUserService.Instance.CanEditProducts;
+        public bool CanViewOrders => CurrentUserService.Instance.CanViewOrders;
+        public bool CanViewMyOrders => CurrentUserService.Instance.CanViewMyOrders;
+    
+    public ProductsWindowViewModel()
+    {
+        _databaseService = new DatabaseService();
+        UpdatePermissions();
+        _ = LoadData();
+    }
+    
+        public void UpdatePermissions()
+        {
+            OnPropertyChanged(nameof(CanFilterAndSearch));
+            OnPropertyChanged(nameof(CanEdit));
+            OnPropertyChanged(nameof(CanViewOrders));
+            OnPropertyChanged(nameof(CanViewMyOrders));
+        }
+    
+    public ObservableCollection<string> SortOptions { get; } = new()
+    {
+        "По умолчанию",
+        "По возрастанию цены",
+        "По убыванию цены"
+    };
+    
+    public event EventHandler? OrdersRequested;
+    public event EventHandler? MyOrdersRequested;
+    
+    
+    private async Task LoadData()
+    {
+        IsLoading = true;
+        StatusMessage = "Загрузка...";
+        
+        try
+        {
+            _allProducts = await _databaseService.GetAllProducts();
+            
+            // Load categories
+            var categoryList = await _databaseService.GetAllCategories();
+            Categories.Clear();
+            Categories.Add("Все категории");
+            foreach (var cat in categoryList)
+            {
+                Categories.Add(cat.CategoryName);
+            }
+            SelectedCategory = "Все категории";
+            
+            // Load manufacturers
+            var manufacturerList = await _databaseService.GetAllManufacturers();
+            Manufacturers.Clear();
+            Manufacturers.Add("Все производители");
+            foreach (var man in manufacturerList)
+            {
+                Manufacturers.Add(man.ManufacturerName);
+            }
+            SelectedManufacturer = "Все производители";
+            
+            ApplyFilters();
+            
+            // Принудительное обновление UI
+            OnPropertyChanged(nameof(Products));
+            
+            StatusMessage = $"Загружено товаров: {Products.Count}";
+            System.Diagnostics.Debug.WriteLine($"Загружено товаров: {Products.Count}");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Ошибка загрузки: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    partial void OnSelectedCategoryChanged(string? value)
+    {
+        if (CanFilterAndSearch)
+        {
+            ApplyFilters();
+        }
+    }
+    
+    partial void OnSelectedManufacturerChanged(string? value)
+    {
+        if (CanFilterAndSearch)
+        {
+            ApplyFilters();
+        }
+    }
+    
+    partial void OnSearchTextChanged(string value)
+    {
+        if (CanFilterAndSearch)
+        {
+            ApplyFilters();
+        }
+    }
+    
+    partial void OnSortOptionChanged(string value)
+    {
+        if (CanFilterAndSearch)
+        {
+            ApplyFilters();
+        }
+    }
+    
+    private void ApplyFilters()
+    {
+        var filtered = _allProducts.AsEnumerable();
+        
+        // Filter by category
+        if (CanFilterAndSearch && !string.IsNullOrEmpty(SelectedCategory) && SelectedCategory != "Все категории")
+        {
+            filtered = filtered.Where(p => p.CategoryName == SelectedCategory);
+        }
+        
+        // Filter by manufacturer
+        if (CanFilterAndSearch && !string.IsNullOrEmpty(SelectedManufacturer) && SelectedManufacturer != "Все производители")
+        {
+            filtered = filtered.Where(p => p.ManufacturerName == SelectedManufacturer);
+        }
+        
+        // Search
+        if (CanFilterAndSearch && !string.IsNullOrWhiteSpace(SearchText))
+        {
+            var searchLower = SearchText.ToLower();
+            filtered = filtered.Where(p => 
+                p.ProductName.ToLower().Contains(searchLower) ||
+                p.Description?.ToLower().Contains(searchLower) == true ||
+                p.Article.ToLower().Contains(searchLower));
+        }
+        
+        // Sort
+        if (CanFilterAndSearch)
+        {
+            filtered = SortOption switch
+            {
+                "По возрастанию цены" => filtered.OrderBy(p => p.PriceWithDiscount),
+                "По убыванию цены" => filtered.OrderByDescending(p => p.PriceWithDiscount),
+                _ => filtered.OrderBy(p => p.ProductName)
+            };
+        }
+        
+        Products.Clear();
+        foreach (var product in filtered)
+        {
+            Products.Add(product);
+        }
+        
+        // Принудительное обновление UI
+        OnPropertyChanged(nameof(Products));
+        
+        StatusMessage = $"Показано товаров: {Products.Count} из {_allProducts.Count}";
+    }
+    
+    [RelayCommand]
+    private void AddProduct()
+    {
+    }
+    
+    [RelayCommand]
+    private void EditProduct()
+    {
+    }
+    
+    [RelayCommand]
+    private void DeleteProduct()
+    {
+    }
+    
+    [RelayCommand]
+    private void ShowOrders()
+    {
+        OrdersRequested?.Invoke(this, EventArgs.Empty);
+    }
+    
+    [RelayCommand]
+    private void ShowMyOrders()
+    {
+        MyOrdersRequested?.Invoke(this, EventArgs.Empty);
+    }
+    
+    [RelayCommand]
+    public async Task Refresh()
+    {
+        await LoadData();
+    }
+}
+
+using CommunityToolkit.Mvvm.ComponentModel;
+
+namespace Shoes.ViewModels;
+
+public class ViewModelBase : ObservableObject
+{
+}
+
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Shoes.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="500" d:DesignHeight="600"
+        x:Class="Shoes.Views.LoginWindow"
+        x:DataType="vm:LoginWindowViewModel"
+        Title="ООО Обувь - Авторизация "
+        MinWidth="600" MinHeight="400"
+        Width="500" Height="600"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False"
+        Background="White"
+        Icon="/Assets/Icon.ico">
+
+    <Design.DataContext>
+        <vm:LoginWindowViewModel/>
+    </Design.DataContext>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Margin="20" MaxWidth="450">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Логотип -->
+            <StackPanel Grid.Row="0" HorizontalAlignment="Center" Margin="0,10,0,20">
+                <Image Source="/Assets/Icon.ico" 
+                       Width="120" 
+                       Height="120"
+                       Stretch="Uniform"/>
+                <TextBlock Text="ООО Обувь"
+                           FontFamily="Times New Roman"
+                           FontSize="28"
+                           FontWeight="Bold"
+                           HorizontalAlignment="Center"
+                           Margin="0,10,0,0"/>
+            </StackPanel>
+
+            <!-- Форма авторизации -->
+            <StackPanel Grid.Row="1" 
+                        HorizontalAlignment="Center"
+                        Width="350"
+                        Margin="0,10,0,20">
+            
+            <TextBlock Text="Авторизация"
+                       FontFamily="Times New Roman"
+                       FontSize="24"
+                       FontWeight="Bold"
+                       HorizontalAlignment="Center"
+                       Margin="0,0,0,30"/>
+
+            <!-- Логин -->
+            <TextBlock Text="Логин:"
+                       FontFamily="Times New Roman"
+                       FontSize="16"
+                       Margin="0,0,0,5"/>
+            <TextBox Text="{Binding Username}"
+                     FontFamily="Times New Roman"
+                     FontSize="16"
+                     Watermark="Введите логин"
+                     Padding="10"
+                     Margin="0,0,0,20"/>
+
+            <!-- Пароль -->
+            <TextBlock Text="Пароль:"
+                       FontFamily="Times New Roman"
+                       FontSize="16"
+                       Margin="0,0,0,5"/>
+            <TextBox Text="{Binding Password}"
+                     FontFamily="Times New Roman"
+                     FontSize="16"
+                     Watermark="Введите пароль"
+                     PasswordChar="*"
+                     Padding="10"
+                     Margin="0,0,0,10"/>
+
+            <!-- Сообщение об ошибке -->
+            <TextBlock Text="{Binding ErrorMessage}"
+                       FontFamily="Times New Roman"
+                       FontSize="14"
+                       Foreground="Red"
+                       TextWrapping="Wrap"
+                       HorizontalAlignment="Center"
+                       Margin="0,0,0,20"
+                       IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+            <!-- Кнопка входа -->
+            <Button Content="Войти"
+                    Command="{Binding LoginCommand}"
+                    Background="#00FA9A"
+                    Foreground="Black"
+                    FontFamily="Times New Roman"
+                    FontSize="18"
+                    FontWeight="Bold"
+                    Padding="20,10"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    Margin="0,0,0,15"
+                    IsEnabled="{Binding !IsLoading}"
+                    Cursor="Hand"/>
+
+            <!-- Кнопка входа как гость -->
+            <Button Content="Войти как гость"
+                    Command="{Binding LoginAsGuestCommand}"
+                    Background="#7FFF00"
+                    Foreground="Black"
+                    FontFamily="Times New Roman"
+                    FontSize="16"
+                    Padding="20,10"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    IsEnabled="{Binding !IsLoading}"
+                    Cursor="Hand"/>
+        </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Window>
+
+using Avalonia.Controls;
+using Shoes.ViewModels;
+
+namespace Shoes.Views;
+
+public partial class LoginWindow : Window
+{
+    public LoginWindow()
+    {
+        InitializeComponent();
+        
+        var viewModel = new LoginWindowViewModel();
+        DataContext = viewModel;
+        
+        viewModel.LoginSuccessful += (s, e) =>
+        {
+            var productsWindow = new ProductsWindow();
+            productsWindow.Show();
+            Close();
+        };
+        
+        viewModel.GuestLoginRequested += (s, e) =>
+        {
+            var productsWindow = new ProductsWindow();
+            productsWindow.Show();
+            Close();
+        };
+    }
+}
+
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Shoes.ViewModels"
+        xmlns:models="using:Shoes.Models"
+        xmlns:converters="using:Shoes.Converters"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="700"
+        x:Class="Shoes.Views.ProductsWindow"
+        x:DataType="vm:ProductsWindowViewModel"
+        Title="ООО Обувь - Каталог товаров"
+        Width="1200" Height="700"
+        MinWidth="600" MinHeight="400"
+        WindowStartupLocation="CenterScreen"
+        Background="White"
+        Icon="/Assets/Icon.ico">
+
+    <Design.DataContext>
+        <vm:ProductsWindowViewModel/>
+    </Design.DataContext>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Заголовок с логотипом -->
+        <Grid Grid.Row="0" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Image Grid.Column="0" 
+                   Source="/Assets/Icon.ico" 
+                   Width="60" 
+                   Height="60"
+                   Stretch="Uniform"
+                   Margin="0,0,15,0"/>
+
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock Text="Каталог товаров"
+                           FontFamily="Times New Roman"
+                           FontSize="24"
+                           FontWeight="Bold"/>
+                <TextBlock Text="ООО Обувь"
+                           FontFamily="Times New Roman"
+                           FontSize="14"
+                           Foreground="Gray"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Spacing="8">
+                <Button Content="Назад"
+                        Background="#E0E0E0"
+                        Foreground="Black"
+                        FontFamily="Times New Roman"
+                        FontSize="14"
+                        Padding="12,6"
+                        Click="BackButton_Click"
+                        Cursor="Hand"/>
+                     
+            </StackPanel>
+        </Grid>
+
+        <!-- Панель фильтров и поиска (только для админа и менеджера) -->
+        <Grid Grid.Row="1" Margin="0,0,0,20" IsVisible="{Binding CanFilterAndSearch}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Поиск -->
+            <StackPanel Grid.Column="0" Grid.Row="0" Margin="0,0,10,0">
+                <TextBlock Text="Поиск:"
+                           FontFamily="Times New Roman"
+                           FontSize="14"
+                           Margin="0,0,0,5"/>
+                <TextBox Text="{Binding SearchText}"
+                         FontFamily="Times New Roman"
+                         FontSize="14"
+                         Watermark="Поиск товара..."/>
+            </StackPanel>
+
+            <!-- Категория -->
+            <StackPanel Grid.Column="1" Grid.Row="0" Margin="0,0,10,0">
+                <TextBlock Text="Категория:"
+                           FontFamily="Times New Roman"
+                           FontSize="14"
+                           Margin="0,0,0,5"/>
+                <ComboBox ItemsSource="{Binding Categories}"
+                          SelectedItem="{Binding SelectedCategory}"
+                          FontFamily="Times New Roman"
+                          FontSize="14"/>
+            </StackPanel>
+
+            <!-- Производитель -->
+            <StackPanel Grid.Column="2" Grid.Row="0" Margin="0,0,10,0">
+                <TextBlock Text="Производитель:"
+                           FontFamily="Times New Roman"
+                           FontSize="14"
+                           Margin="0,0,0,5"/>
+                <ComboBox ItemsSource="{Binding Manufacturers}"
+                          SelectedItem="{Binding SelectedManufacturer}"
+                          FontFamily="Times New Roman"
+                          FontSize="14"/>
+            </StackPanel>
+
+            <!-- Сортировка -->
+            <StackPanel Grid.Column="3" Grid.Row="0" Margin="0,0,0,0">
+                <TextBlock Text="Сортировка:"
+                           FontFamily="Times New Roman"
+                           FontSize="14"
+                           Margin="0,0,0,5"/>
+                <ComboBox ItemsSource="{Binding SortOptions}"
+                          SelectedItem="{Binding SortOption}"
+                          FontFamily="Times New Roman"
+                          FontSize="14"/>
+            </StackPanel>
+
+            <!-- Кнопки управления -->
+            <StackPanel Grid.Column="0" Grid.Row="1" Grid.ColumnSpan="4" 
+                        Orientation="Horizontal" 
+                        Margin="0,10,0,0">
+                <!-- Кнопки для администратора -->
+                <Button Content="Добавить"
+                        Command="{Binding AddProductCommand}"
+                        Background="#00FA9A"
+                        Foreground="Black"
+                        FontFamily="Times New Roman"
+                        FontSize="14"
+                        Padding="15,8"
+                        Margin="0,0,10,0"
+                        IsVisible="{Binding CanEdit}"
+                        Cursor="Hand"/>
+                <Button Content="Редактировать"
+                        Command="{Binding EditProductCommand}"
+                        Background="#7FFF00"
+                        Foreground="Black"
+                        FontFamily="Times New Roman"
+                        FontSize="14"
+                        Padding="15,8"
+                        Margin="0,0,10,0"
+                        IsVisible="{Binding CanEdit}"
+                        Cursor="Hand"/>
+                <Button Content="Удалить"
+                        Command="{Binding DeleteProductCommand}"
+                        Background="#FFB6C1"
+                        Foreground="Black"
+                        FontFamily="Times New Roman"
+                        FontSize="14"
+                        Padding="15,8"
+                        Margin="0,0,10,0"
+                        IsVisible="{Binding CanEdit}"
+                        Cursor="Hand"/>
+                
+                <Button Content="Обновить"
+                        Command="{Binding RefreshCommand}"
+                        Background="#E0E0E0"
+                        Foreground="Black"
+                        FontFamily="Times New Roman"
+                        FontSize="14"
+                        Padding="15,8"
+                        Cursor="Hand"/>
+            </StackPanel>
+        </Grid>
+        
+        
+        <!-- Список товаров -->
+        <ScrollViewer Grid.Row="2">
+            <ItemsControl ItemsSource="{Binding Products}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="0,0,0,15"
+                                Padding="12"
+                                BorderBrush="#C0C0C0"
+                                BorderThickness="1.5"
+                                CornerRadius="4"
+                                Cursor="Hand"
+                                Tapped="ProductCard_Tapped">
+                            <Border.Background>
+                                <MultiBinding>
+                                    <Binding Path="StockQuantity"/>
+                                    <Binding Path="CurrentDiscount"/>
+                                </MultiBinding>
+                            </Border.Background>
+                            <Border.Styles>
+                                <Style Selector="Border:pointerover">
+                                    <Setter Property="BorderBrush" Value="#00A651"/>
+                                    <Setter Property="BorderThickness" Value="2"/>
+                                </Style>
+                            </Border.Styles>
+                            
+                            <Grid ColumnDefinitions="220,*,150">
+                                <!-- Фото -->
+                                <Border Margin="0,0,15,0"
+                                        BorderBrush="#808080"
+                                        BorderThickness="1"
+                                        Background="#F8F8F8">
+                                    <Image Source="{Binding ImageBitmap}"
+                                           Stretch="Uniform"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                                </Border>
+                                
+                                <!-- Описание -->
+                                <StackPanel Grid.Column="1"
+                                            Spacing="4">
+                                    <TextBlock FontFamily="Times New Roman"
+                                               FontSize="18"
+                                               FontWeight="Bold"
+                                               TextWrapping="Wrap">
+                                        <Run Text="{Binding CategoryName}"/>
+                                        <Run Text=" | "/>
+                                        <Run Text="{Binding ProductName}"/>
+                                    </TextBlock>
+                                    
+                                    <StackPanel>
+                                        <TextBlock FontFamily="Times New Roman" FontSize="14">
+                                            <Run Text="Описание товара: "/>
+                                        </TextBlock>
+                                        <TextBlock FontFamily="Times New Roman"
+                                                   FontSize="14"
+                                                   TextWrapping="Wrap"
+                                                   Text="{Binding Description}"/>
+                                    </StackPanel>
+                                    
+                                    <TextBlock FontFamily="Times New Roman" FontSize="14">
+                                        <Run Text="Производитель: "/>
+                                        <Run Text="{Binding ManufacturerName}"/>
+                                    </TextBlock>
+                                    
+                                    <TextBlock FontFamily="Times New Roman" FontSize="14">
+                                        <Run Text="Поставщик: "/>
+                                        <Run Text="{Binding SupplierName}"/>
+                                    </TextBlock>
+                                    
+                                    <TextBlock FontFamily="Times New Roman" FontSize="14">
+                                        <Run Text="Цена: "/>
+                                        <Run Text="{Binding Price, StringFormat='{}{0:F2} ₽'}"/>
+                                    </TextBlock>
+                                    
+                                    <TextBlock FontFamily="Times New Roman" FontSize="14">
+                                        <Run Text="Единица измерения: "/>
+                                        <Run Text="{Binding UnitName}"/>
+                                    </TextBlock>
+                                    
+                                    <!-- Количество на складе, подсветка синим, если товара нет -->
+                                    <TextBlock FontFamily="Times New Roman"
+                                               FontSize="14"
+                                               Foreground="{Binding StockQuantity}">
+                                        <Run Text="Количество на складе: "/>
+                                        <Run Text="{Binding StockQuantity}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                                
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</Window>
+
+using System;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Shoes.Models;
+using Shoes.Services;
+using Shoes.ViewModels;
+
+namespace Shoes.Views;
+
+public partial class ProductsWindow : Window
+{
+    private ProductsWindowViewModel? _viewModel;
+    
+    public ProductsWindow()
+    {
+        InitializeComponent();
+        
+        _viewModel = new ProductsWindowViewModel();
+        DataContext = _viewModel;
+        
+        _viewModel.UpdatePermissions();
+        
+    }
+
+    private void ProductCard_Tapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is Border border && border.DataContext is Product product)
+        {
+            if (_viewModel != null)
+            {
+                _viewModel.SelectedProduct = product;
+            }
+        }
+    }
+    
+    private void BackButton_Click(object? sender, RoutedEventArgs e)
+    {
+        CurrentUserService.Instance.CurrentUser = null;
+        CurrentUserService.Instance.IsGuest = false;
+        
+        var loginWindow = new LoginWindow();
+        loginWindow.Show();
+        Close();
+    }
+}
+
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Shoes.App"
+             xmlns:local="using:Shoes"
+             RequestedThemeVariant="Default">
+             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+
+    <Application.DataTemplates>
+        <local:ViewLocator/>
+    </Application.DataTemplates>
+  
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+</Application>
+
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Data.Core;
+using Avalonia.Data.Core.Plugins;
+using System.Linq;
+using Avalonia.Markup.Xaml;
+using Shoes.Views;
+
+namespace Shoes;
+
+public partial class App : Application
+{
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+    }
+
+    public override void OnFrameworkInitializationCompleted()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            // Avoid duplicate validations from both Avalonia and the CommunityToolkit. 
+            // More info: https://docs.avaloniaui.net/docs/guides/development-guides/data-validation#manage-validationplugins
+            DisableAvaloniaDataAnnotationValidation();
+            desktop.MainWindow = new LoginWindow();
+        }
+
+        base.OnFrameworkInitializationCompleted();
+    }
+
+    private void DisableAvaloniaDataAnnotationValidation()
+    {
+        // Get an array of plugins to remove
+        var dataValidationPluginsToRemove =
+            BindingPlugins.DataValidators.OfType<DataAnnotationsValidationPlugin>().ToArray();
+
+        // remove each entry found
+        foreach (var plugin in dataValidationPluginsToRemove)
+        {
+            BindingPlugins.DataValidators.Remove(plugin);
+        }
+    }
+}
+
+
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+    <AvaloniaResource Include="Images\**" />
+    <AvaloniaResource Include="Views\Images\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="**\tempCodeRunnerFile.cs" />
+    <None Include="**\tempCodeRunnerFile.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.6" />
+    <!--Condition below is needed to remove Avalonia.Diagnostics package from build output in Release configuration.-->
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.6">
+      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
+      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.1" />
+    <PackageReference Include="Npgsql" Version="8.0.5" />
+    <PackageReference Include="ScottPlot" Version="5.1.57" />
+    <PackageReference Include="ScottPlot.Avalonia" Version="5.1.57" />
+  </ItemGroup>
+</Project>
+
+
+
+
+
+
